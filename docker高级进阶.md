@@ -1357,6 +1357,14 @@ docker service rm <SERVICE-ID>  # <SERVICE-ID> 是服务的 ID
 ## 验证 docker service ls
 
 
+# 判断某一个节点是否在集群中
+## 1. 管理节点运行
+docker node ls
+docker node inspect <NODE-ID>  # <NODE-ID> 是节点的 ID
+
+## 2. 任何节点都可以通过以下命令查看
+docker info   # 看看里面是否有swarm 相关的信息
+
 ```
 
 
