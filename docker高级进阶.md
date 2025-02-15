@@ -1351,6 +1351,12 @@ docker service inspect --pretty <SERVICE-ID>  # <SERVICE-ID> 是服务的 ID
 docker service logs -f <SERVICE-ID>  # <SERVICE-ID> 是服务的 ID
 
 docker service ps <SERVICE-ID>  # <SERVICE-ID> 是服务的 ID
+
+# 删除服务
+docker service rm <SERVICE-ID>  # <SERVICE-ID> 是服务的 ID
+## 验证 docker service ls
+
+
 ```
 
 
