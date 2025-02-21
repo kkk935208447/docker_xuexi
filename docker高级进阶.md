@@ -1476,7 +1476,7 @@ curl <NODE3-IP>:3000
 
    docker service scale nginx_stack_nginx_swarm=1
    ```
-   - 将服务 `lobechat` 缩容到 5 个副本。
+   - 将服务 `nginx_stack_nginx_swarm` 扩容到 5 个副本, 再缩容到1个副本。
 
 2. **更改服务配置**
    切换服务镜像版本或动态更新：
