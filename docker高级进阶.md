@@ -1240,7 +1240,7 @@ docker node inspect <NODE-ID>  # <NODE-ID> 是节点的 ID
 ```
 
 
-## 部署服务
+## 部署服务 docker service create
 1. 创建并启动服务
 ```bash
 docker service --help
@@ -1375,6 +1375,8 @@ docker info   # 看看里面是否有swarm 相关的信息
 ```bash
 # 调整服务的副本数量
 docker service update --replicas 5 <SERVICE-ID/NAME>  # <SERVICE-ID> 是服务的 ID
+
+docker service scale <SERVICE-ID/NAME>=5
 ```
 
 
@@ -1398,17 +1400,147 @@ docker swarm join --token SWMTKN-1-4q1j0p9w6w3z9xv2v6z1q6w3z9xv2v6z1q6w3z-3j3z9x
 
 
 
-## 服务更新
 
+## docker stack 
+要将原本的 Docker Compose 文件使用到分布式部署中并使用 Docker Swarm，需要一些调整，因为 Docker Swarm 使用 `docker stack deploy` 来管理服务，相较于普通的 Compose，Swarm 额外提供了服务级的功能，如多实例部署、服务扩展、高可用性等。
+
+### 1. **调整 Compose 文件**
+对于 Docker Swarm，Compose 文件需要调整满足 Stack 部署的要求：
+
+```yaml
+version: '3.8'  # 使用 Docker Compose 文件的版本
+services:
+  nginx_swarm:
+    image: nginx:latest  # 使用最新版本的 Nginx 镜像
+    ports:
+      - "3000:80"        # 将主机的3000端口映射到容器的80端口
+    deploy:
+      replicas: 1        # 设置服务的副本数量为2
+      restart_policy:
+        condition: any  # 失败时重启策略
+    networks:
+      - webnet           # 指定连接的网络
+networks:
+  webnet:
+    driver: overlay       # 使用 overlay 网络，适用于 Swarm
 ```
 
 
+### 2. **部署服务 docker stack deploy**
+将调整后的文件保存为 `docker-stack.yml` 并使用以下命令部署至 Swarm：
+
+```bash
+docker stack --help
+
+# Docker Stack 的配置检查功能, 类似于 docker-compose config
+docker stack config -c docker-stack.yml 
+
+# 部署服务
+docker stack deploy -d -c docker-stack.yml nginx_stack
+# -d 参数表示后台运行
+# -c 或 --compose-file 指定配置文件
+# --resolve-image
+   # 定义如何处理微服务的镜像：
+   # 如果值为 always：Swarm 每次都会强制从镜像仓库中拉取镜像。
+   # 如果值为 changed（默认行为）：只有镜像发生更改时才会拉取。
+```
 
 
+此命令会启动服务，多副本分布在 Swarm 集群的各个节点。在 Swarm 模式下，Swarm 提供了**集群的服务负载均衡**，只需访问任意 Swarm Manager 或 Worker 节点的 `3000` 端口，即可被分发到后端的任意副本。确保你所有主机 (包括 Manager 和 Worker 节点) 的防火墙已开放服务端口 `3000`
 
 
+### 3. 常见命令与参数：
+
+```bash
+docker stack ls
+docker stack services nginx_stack
+docker stack ps nginx_stack
+docker service ls
+docker service ps nginx_stack_nginx_swarm
+
+docker stack rm nginx_stack
+
+# ingress 验证, 如果某个副本没有 nginx 服务但却能正常转发访问, 则说明 ingress 生效
+curl <MANAGER-IP>:3000
+curl <NODE1-IP>:3000
+curl <NODE2-IP>:3000
+curl <NODE3-IP>:3000
+```
 
 
+### 4. 常见其他命令与相关参数：
+1. **扩容/缩容服务**
+   ```bash
+   docker service ls
+   docker service scale nginx_stack_nginx_swarm=5
+
+   docker service scale nginx_stack_nginx_swarm=1
+   ```
+   - 将服务 `lobechat` 缩容到 5 个副本。
+
+2. **更改服务配置**
+   切换服务镜像版本或动态更新：
+   ```bash
+   docker service update --image lobehub/lobe-chat:2.0 nginx_stack_nginx_swarm
+   ```
+
+3. **排查 Service 问题**
+   检查服务日志输出以诊断问题：
+   ```bash
+   docker service logs nginx_stack_nginx_swarm --follow
+   ```
+
+4. **查看节点信息**
+   检查当前节点在 Swarm 的上下文角色：
+   ```bash
+   docker node ls
+   ```
+
+5. **更改docker swarm node 名**
+可以使用 `--label-add` 选项来为 Docker Swarm 节点添加标签。这可以用于对节点进行标识和组织，方便之后在服务部署时使用 `placement` 约束。通过标签，可以控制服务运行在哪些节点上。
+```bash
+docker node --help
+docker node update --help
+docker node update --label-add key=value node-id
+
+# 例如，假设要为节点 7bkkdmuifawdub3u79k553w64 添加一个标签，键为 env，值为 production，可以执行以下命令：
+docker node update --label-add env=production 7bkkdmuifawdub3u79k553w64
+
+# 可以使用类似的方法添加多个标签：
+docker node update --label-add env=jingdong --label-add role=worker 7bkkdmuifawdub3u79k553w64
+
+# 查看
+docker node inspect 7bkkdmuifawdub3u79k553w64
+# 在输出的信息中，您会看到 Spec 字段下的 Labels 部分。
+# "Labels": {
+#                "env": "jingdong",
+#                "role": "worker"
+
+# 删除标签
+docker node update --label-rm role 7bkkdmuifawdub3u79k553w64
+```
+在 Docker Compose 中使用标签进行部署, 将标签应用到节点后，可以在 Docker Compose 文件中使用这些标签来约束服务的部署。例如：
+```yaml
+version: '3.8'  # 使用 Docker Compose 文件的版本
+services:
+   nginx_swarm:
+      image: nginx:latest  # 使用最新版本的 Nginx 镜像
+      ports:
+         - "3000:80"        # 将主机的3000端口映射到容器的80端口
+      deploy:
+         replicas: 1        # 设置服务的副本数量为2
+         restart_policy:
+            condition: any  # 失败时重启策略
+         placement:
+         # 将确保 nginx_swarm 服务只在带有 env=jingdong 标签的节点上运行。
+            constraints:
+               - node.labels.env == jingdong
+      networks:
+         - webnet           # 指定连接的网络
+networks:
+   webnet:
+      driver: overlay       # 使用 overlay 网络，适用于 Swarm
+```
 
 
 
